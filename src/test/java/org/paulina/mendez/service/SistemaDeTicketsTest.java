@@ -36,6 +36,7 @@ class SistemaDeTicketsTest {
     Reloj reloj;
 
     @InjectMocks
+
     SistemaDeTickets sistema;
 
     @Nested
@@ -177,6 +178,133 @@ class SistemaDeTicketsTest {
             assertEquals("Agente_XYZ", ticketPersistido.agenteId());
             assertEquals(fechaAsignacion, ticketPersistido.actualizadoEn());
             assertEquals("TK-100", ticketPersistido.ticketId());
+        }
+    }
+
+    @Nested
+    class cerrarTicket {
+
+        @Test
+        @DisplayName("cerrar Cambia El Estado Del Ticket A CERRADO")
+        void cerrarExitosamente() {
+            Instant ahora = Instant.now();
+            Ticket ticket = new Ticket("TK-01","User1",
+                    "Asunto", "Desc",EstadoTicket.ASIGNADO,
+                    "Agente1",ahora,ahora);
+            Instant cierre = ahora.plusSeconds(60);
+            when(reloj.ahora()).thenReturn(cierre);
+            Ticket resultado = sistema.cerrar(ticket);
+            assertEquals(EstadoTicket.CERRADO, resultado.estado());
+            verify(registro).actualizar(resultado);
+            verify(notificador).notificarCierre("User1","TK-01");
+        }
+
+        @Test
+        @DisplayName("cerrar lanza excepción si el ticket es nulo")
+        void errorTicketNulo() {
+            IllegalArgumentException ex = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> sistema.cerrar(null)
+            );
+            assertEquals("El Ticket No Puede Ser Nulo", ex.getMessage());
+        }
+
+        @Test
+        @DisplayName("cerrar Debe Actualizar La Fecha actualizadoEn")
+        void actualizarFecha() {
+            Instant creado = Instant.parse("2023-10-01T10:00:00Z");
+            Instant cierre = Instant.parse("2023-10-01T10:15:00Z");
+            Ticket ticket = new Ticket("TK-02","User1",
+                    "A","D",EstadoTicket.ASIGNADO,
+                    "Agente1",creado,creado);
+            when(reloj.ahora()).thenReturn(cierre);
+            Ticket resultado = sistema.cerrar(ticket);
+            assertEquals(creado, resultado.creadoEn());
+            assertEquals(cierre, resultado.actualizadoEn());
+        }
+
+        @Test
+        @DisplayName("cerrar No Debe Modificar El Ticket Original")
+        void verificarInmutabilidad() {
+            Instant ahora = Instant.now();
+            Ticket original = new Ticket("TK-03","User1",
+                    "A","D",EstadoTicket.ASIGNADO,
+                    "Agente1",ahora,ahora);
+            when(reloj.ahora()).thenReturn(ahora.plusSeconds(30));
+            Ticket resultado = sistema.cerrar(original);
+            assertNotSame(original, resultado);
+            assertEquals(EstadoTicket.ASIGNADO, original.estado());
+            assertEquals(EstadoTicket.CERRADO, resultado.estado());
+        }
+
+        @Test
+        @DisplayName("cerrar Debe Persistir El Ticket Cerrado En El Repositorio")
+        void verificarPersistencia() {
+            Instant ahora = Instant.now();
+            Instant cierre = ahora.plusSeconds(20);
+            Ticket ticket = new Ticket("TK-04","User1",
+                    "A","D",EstadoTicket.ASIGNADO,
+                    "Agente1",ahora,ahora);
+            when(reloj.ahora()).thenReturn(cierre);
+            ArgumentCaptor<Ticket> captor = ArgumentCaptor.forClass(Ticket.class);
+            sistema.cerrar(ticket);
+            verify(registro).actualizar(captor.capture());
+            Ticket persistido = captor.getValue();
+            assertEquals(EstadoTicket.CERRADO, persistido.estado());
+            assertEquals("TK-04", persistido.ticketId());
+            assertEquals(cierre, persistido.actualizadoEn());
+        }
+    }
+
+    @Nested
+    class cancelarTicket {
+
+        @Test
+        @DisplayName("cancelar Notifica Correctamente La Cancelación")
+        void cancelarCorrectamente() {
+            sistema.cancelar("User1","TK-10","No es necesario");
+            verify(notificador).notificarCancelacion("User1",
+                    "TK-10","No es necesario");
+        }
+
+        @Test
+        @DisplayName("cancelar lanza excepción si usuarioId es nulo")
+        void errorUsuarioIdNulo() {
+            IllegalArgumentException ex = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> sistema.cancelar(null,"TK-10","Motivo")
+            );
+            assertEquals("El UsuarioId No Puede Ser Nulo O Vacío", ex.getMessage());
+        }
+
+        @Test
+        @DisplayName("cancelar lanza excepción si usuarioId está vacío")
+        void errorUsuarioIdVacio() {
+            IllegalArgumentException ex = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> sistema.cancelar("   ","TK-10","Motivo")
+            );
+            assertEquals("El UsuarioId No Puede Ser Nulo O Vacío", ex.getMessage());
+        }
+
+        @Test
+        @DisplayName("cancelar lanza excepción si ticketId es vacío")
+        void errorTicketIdVacio() {
+            IllegalArgumentException ex = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> sistema.cancelar("User1","   ","Motivo")
+            );
+            assertEquals("El TicketId No Puede Ser Nulo O Vacío", ex.getMessage());
+        }
+
+        @Test
+        @DisplayName("cancelar lanza excepción si motivo es vacío")
+        void errorMotivoVacio() {
+            IllegalArgumentException ex = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> sistema.cancelar("User1","TK-10","   ")
+            );
+            assertEquals("El Motivo No Puede Ser Nulo O Vacío", ex.getMessage());
         }
     }
 }
